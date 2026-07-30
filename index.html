@@ -90,6 +90,7 @@
 
         .btn-secondary { background-color: #6B7280; }
         .btn-retry { background-color: #F59E0B; }
+        .btn-ranking { background-color: #8B5CF6; }
 
         .text-input {
             width: 100%;
@@ -232,6 +233,24 @@
             margin-bottom: 20px;
             line-height: 1.8;
         }
+
+        /* ランキングテーブル表示エリア */
+        .ranking-list {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+
+        .ranking-list th, .ranking-list td {
+            padding: 10px;
+            text-align: center;
+            border-bottom: 1px solid #E5E7EB;
+        }
+
+        .ranking-list th {
+            background-color: #F9FAFB;
+            color: #4B5563;
+        }
     </style>
 </head>
 <body>
@@ -264,11 +283,13 @@
     <div id="setup-screen" class="hidden">
         <div class="user-bar">
             <div>プレイヤー: <strong id="user-display-name">-</strong></div>
-            <div>最高記録: <strong id="user-display-score">0</strong>点 (<span id="user-display-rank">-</span>)</div>
+            <div>合計スコア: <strong id="user-display-score">0</strong>点 (<span id="user-display-rank">-</span>)</div>
         </div>
 
         <h1>47都道府県マスター</h1>
         
+        <button class="btn btn-ranking" onclick="showRankingModal()">🏆 ランキングを見る</button>
+
         <h3>1. 出題形式を選択</h3>
         <div class="grid-select">
             <button class="btn mode-btn" data-mode="shape-to-name">形 ➔ 名前</button>
@@ -295,6 +316,26 @@
         <button id="start-btn" class="btn" style="background-color: #10B981; margin-top: 10px;">スタート！</button>
     </div>
 
+    <!-- 1.5 ランキング表示モーダル -->
+    <div id="ranking-modal" class="feedback-overlay hidden">
+        <h2>🏆 スコアランキング TOP 10</h2>
+        <div style="width: 100%; max-height: 300px; overflow-y: auto;">
+            <table class="ranking-list">
+                <thead>
+                    <tr>
+                        <th>順位</th>
+                        <th>名前</th>
+                        <th>合計スコア</th>
+                    </tr>
+                </thead>
+                <tbody id="ranking-table-body">
+                    <!-- JSで動的挿入 -->
+                </tbody>
+            </table>
+        </div>
+        <button class="btn btn-secondary" style="margin-top: 15px;" onclick="closeRankingModal()">閉じる</button>
+    </div>
+
     <!-- 2. クイズ実行画面 -->
     <div id="quiz-screen" class="hidden">
         <div class="status-bar">
@@ -314,7 +355,7 @@
             <button class="btn ans-btn" onclick="checkAnswer(3)"></button>
         </div>
 
-        <!-- 一問ごとの判定ポップアップ (1.5秒で自動消失) -->
+        <!-- 一問ごとの判定ポップアップ (1.0秒で自動消失) -->
         <div id="feedback-modal" class="feedback-overlay hidden">
             <div id="fb-title" class="feedback-title">正解！</div>
             <div id="fb-msg" class="feedback-msg"></div>
@@ -342,7 +383,7 @@ const GAS_URL = "https://script.google.com/macros/s/AKfycbwXcPTF1Jb3MN5TREC9_yeX
 
 // --- ユーザー認証状態 ---
 let idToken = "";
-let userProfile = { playerName: "", highScore: 0, bestRank: "-" };
+let userProfile = { playerName: "", totalScore: 0, bestRank: "-", modeScores: {} };
 
 // --- 都道府県データ構造 ---
 const prefData = [
@@ -426,8 +467,9 @@ async function handleCredentialResponse(response) {
         document.getElementById("login-screen").classList.add("hidden");
         if (res.isRegistered) {
             userProfile.playerName = res.playerName;
-            userProfile.highScore = res.highScore;
+            userProfile.totalScore = res.totalScore || 0;
             userProfile.bestRank = res.bestRank;
+            userProfile.modeScores = res.modeScores || {};
             updateUserUI();
             document.getElementById("setup-screen").classList.remove("hidden");
         } else {
@@ -445,8 +487,9 @@ async function submitPlayerName() {
     const res = await sendApi({ action: "savePlayerName", playerName: name });
     if (res.status === "success") {
         userProfile.playerName = res.playerName;
-        userProfile.highScore = 0;
+        userProfile.totalScore = 0;
         userProfile.bestRank = "-";
+        userProfile.modeScores = {};
         updateUserUI();
         document.getElementById("register-screen").classList.add("hidden");
         document.getElementById("setup-screen").classList.remove("hidden");
@@ -457,8 +500,40 @@ async function submitPlayerName() {
 
 function updateUserUI() {
     document.getElementById("user-display-name").innerText = userProfile.playerName;
-    document.getElementById("user-display-score").innerText = userProfile.highScore;
+    document.getElementById("user-display-score").innerText = userProfile.totalScore;
     document.getElementById("user-display-rank").innerText = userProfile.bestRank;
+}
+
+// ランキング表示処理
+async function showRankingModal() {
+    const modal = document.getElementById("ranking-modal");
+    const tbody = document.getElementById("ranking-table-body");
+    tbody.innerHTML = '<tr><td colspan="3">読み込み中...</td></tr>';
+    modal.classList.remove("hidden");
+
+    const res = await sendApi({ action: "getRanking" });
+    if (res.status === "success") {
+        tbody.innerHTML = "";
+        if (res.ranking.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="3">ランキングデータがありません。</td></tr>';
+            return;
+        }
+        res.ranking.forEach((item, index) => {
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+                <td>${index + 1}</td>
+                <td>${item.playerName}</td>
+                <td><strong>${item.totalScore}</strong>点</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } else {
+        tbody.innerHTML = '<tr><td colspan="3">読み込みエラーが発生しました。</td></tr>';
+    }
+}
+
+function closeRankingModal() {
+    document.getElementById("ranking-modal").classList.add("hidden");
 }
 
 // 都道府県名と県庁所在地名が異なるものを判定するヘルパー関数
@@ -713,16 +788,16 @@ async function endGame() {
     // --- GASへのスコア送信・保存処理 ---
     const res = await sendApi({
         action: "saveResult",
+        mode: currentMode,
         score: score,
         rank: rank
     });
 
     if (res.status === "success") {
-        userProfile.highScore = res.highScore;
-        userProfile.bestRank = res.bestRank;
+        userProfile.totalScore = res.totalScore;
         updateUserUI();
         if (res.isNewRecord) {
-            document.getElementById('save-status-text').innerText = "★ ハイスコア更新！ ★";
+            document.getElementById('save-status-text').innerText = "★ モード別ハイスコア更新！ ★";
         } else {
             document.getElementById('save-status-text').innerText = "スコアを保存しました。";
         }
