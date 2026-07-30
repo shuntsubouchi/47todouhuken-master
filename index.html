@@ -379,7 +379,7 @@
 
 <script>
 // --- 設定パラメータ ---
-const GAS_URL = "https://script.google.com/macros/s/AKfycbwXcPTF1Jb3MN5TREC9_yeXs_ncP-EWx3yqEezWtMfqaYW3Oy0HY8vkzEhJXk37peab/exec"; // GASのデプロイURLを指定
+const GAS_URL = "https://script.google.com/macros/s/AKfycbwXcPTF1Jb3MN5TREC9_yeXs_ncP-EWx3yqEezWtMfqaYW3Oy0HY8vkzEhJXk37peab/exec"; // GASのデプロイURL
 
 // --- ユーザー認証状態 ---
 let idToken = "";
@@ -458,6 +458,20 @@ let timerInterval = null;
 let elapsedTime = 0;
 let currentCorrectAnswerStr = "";
 
+// --- 通信用汎用関数 ---
+async function sendApi(data) {
+    try {
+        data.idToken = idToken;
+        const res = await fetch(GAS_URL, {
+            method: "POST",
+            body: JSON.stringify(data)
+        });
+        return await res.json();
+    } catch (e) {
+        return { status: "error", message: e.toString() };
+    }
+}
+
 // --- Google認証連携処理 ---
 async function handleCredentialResponse(response) {
     idToken = response.credential;
@@ -514,7 +528,7 @@ async function showRankingModal() {
     const res = await sendApi({ action: "getRanking" });
     if (res.status === "success") {
         tbody.innerHTML = "";
-        if (res.ranking.length === 0) {
+        if (!res.ranking || res.ranking.length === 0) {
             tbody.innerHTML = '<tr><td colspan="3">ランキングデータがありません。</td></tr>';
             return;
         }
@@ -541,6 +555,15 @@ function isDifferentCapital(item) {
     const prefBase = item.name.replace(/(都|道|府|県)$/, '');
     const capBase = item.capital.replace(/(市|区)$/, '');
     return prefBase !== capBase;
+}
+
+// 配列のシャッフル関数
+function shuffle(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
 }
 
 const modeBtns = document.querySelectorAll('.mode-btn');
@@ -755,6 +778,7 @@ function checkAnswer(btnIndex) {
     }, 1000);
 }
 
+// ゲーム終了・スコア計算・結果保存処理
 async function endGame() {
     clearInterval(timerInterval);
 
@@ -762,22 +786,29 @@ async function endGame() {
     document.getElementById('result-screen').classList.remove('hidden');
 
     const totalQ = questions.length;
-    const incorrectCount = totalQ - correctCount;
     const accuracy = (correctCount / totalQ) * 100;
-    const avgTimePerQ = elapsedTime / totalQ;
+    
+    // スコア計算公式: (正解数 * 10) + (タイムボーナス)
+    const baseScore = correctCount * 10;
+    const timeBonus = Math.max(0, Math.floor(100 - elapsedTime));
+    const score = accuracy === 100 ? baseScore + timeBonus : baseScore;
 
-    const rank = calculateRank(accuracy, avgTimePerQ);
-    const score = Math.round(accuracy); // 100点満点に換算
+    // ランク判定
+    let rank = "C";
+    if (accuracy === 100 && elapsedTime < 15) rank = "SSS";
+    else if (accuracy === 100 && elapsedTime < 30) rank = "SS";
+    else if (accuracy >= 90) rank = "S";
+    else if (accuracy >= 70) rank = "A";
+    else if (accuracy >= 50) rank = "B";
 
     document.getElementById('rank-text').innerText = rank;
-    document.getElementById('save-status-text').innerText = "スコア保存中...";
-
     document.getElementById('result-details').innerHTML = `
-        正解数: <strong style="color:var(--correct-color);">${correctCount}問</strong> / 不正解数: <strong style="color:var(--incorrect-color);">${incorrectCount}問</strong><br>
-        正答率: <strong>${accuracy.toFixed(0)}%</strong> (全${totalQ}問)<br>
-        クリアタイム: <strong>${elapsedTime.toFixed(1)}秒</strong> (平均 ${avgTimePerQ.toFixed(1)}秒/問)
+        正解数: ${correctCount} / ${totalQ}<br>
+        タイム: ${elapsedTime.toFixed(1)}秒<br>
+        獲得スコア: <strong>${score}</strong>点
     `;
 
+    // 誤答がある場合は再挑戦ボタンを表示
     const retryBtn = document.getElementById('retry-missed-btn');
     if (missedQuestions.length > 0) {
         retryBtn.classList.remove('hidden');
@@ -785,7 +816,10 @@ async function endGame() {
         retryBtn.classList.add('hidden');
     }
 
-    // --- GASへのスコア送信・保存処理 ---
+    // スコア保存API呼び出し
+    const saveStatus = document.getElementById('save-status-text');
+    saveStatus.innerText = "スコアを保存中...";
+
     const res = await sendApi({
         action: "saveResult",
         mode: currentMode,
@@ -797,48 +831,20 @@ async function endGame() {
         userProfile.totalScore = res.totalScore;
         updateUserUI();
         if (res.isNewRecord) {
-            document.getElementById('save-status-text').innerText = "★ モード別ハイスコア更新！ ★";
+            saveStatus.innerText = "🎉 ハイスコア更新！保存が完了しました。";
         } else {
-            document.getElementById('save-status-text').innerText = "スコアを保存しました。";
+            saveStatus.innerText = "スコアを保存しました。";
         }
     } else {
-        document.getElementById('save-status-text').innerText = "スコア保存エラー";
+        saveStatus.innerText = "スコア保存エラー: " + (res.message || "通信失敗");
     }
-}
-
-function calculateRank(accuracy, avgTime) {
-    if (accuracy === 100 && avgTime <= 3.5) return "SSS";
-    if (accuracy === 100 && avgTime <= 5.0) return "SS";
-    if (accuracy >= 90 && avgTime <= 6.5) return "S";
-    if (accuracy >= 80) return "A";
-    if (accuracy >= 70) return "B";
-    if (accuracy >= 60) return "C";
-    return "D";
 }
 
 function resetGame() {
     document.getElementById('result-screen').classList.add('hidden');
     document.getElementById('setup-screen').classList.remove('hidden');
 }
-
-function shuffle(array) {
-    for (let i = array.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [array[i], array[j]] = [array[j], array[i]];
-    }
-    return array;
-}
-
-// 通信用共通関数
-async function sendApi(payload) {
-    payload.idToken = idToken;
-    const res = await fetch(GAS_URL, {
-        method: "POST",
-        headers: { "Content-Type": "text/plain" },
-        body: JSON.stringify(payload)
-    });
-    return await res.json();
-}
 </script>
+
 </body>
 </html>
