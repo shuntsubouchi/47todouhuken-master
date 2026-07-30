@@ -274,8 +274,8 @@
     <!-- 0.5 プレイヤーネーム初回登録画面 -->
     <div id="register-screen" class="hidden">
         <h2>プレイヤー登録</h2>
-        <p style="text-align: center; color: #4B5563;">ゲーム内で表示する名前を入力してください。</p>
-        <input type="text" id="player-name-input" class="text-input" placeholder="例: たろう">
+        <p style="text-align: center; color: #4B5563;">自分の名前を入力してください。</p>
+        <input type="text" id="player-name-input" class="text-input" placeholder="例: しゅん">
         <button class="btn" onclick="submitPlayerName()">登録して進む</button>
     </div>
 
@@ -795,8 +795,8 @@ async function endGame() {
 
     // ランク判定
     let rank = "C";
-    if (accuracy === 100 && elapsedTime < 15) rank = "SSS";
-    else if (accuracy === 100 && elapsedTime < 30) rank = "SS";
+    if (accuracy === 100 && elapsedTime < 30) rank = "SSS";
+    else if (accuracy === 100 && elapsedTime < 50) rank = "SS";
     else if (accuracy >= 90) rank = "S";
     else if (accuracy >= 70) rank = "A";
     else if (accuracy >= 50) rank = "B";
